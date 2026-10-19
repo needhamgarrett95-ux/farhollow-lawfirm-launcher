@@ -48,5 +48,5 @@
     "dist": "electron-builder --win --publish never",
     "start": "electron ."
   },
-  "version": "1.0.1"
+  "version": "1.0.2"
 }

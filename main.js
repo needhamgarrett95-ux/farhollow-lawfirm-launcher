@@ -6,6 +6,7 @@ const { app, BrowserWindow, Tray, Menu, ipcMain, dialog, shell, nativeImage } = 
 const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
 const https = require('https');
 const os = require('os');
 
@@ -61,7 +62,9 @@ function pushLog(line) {
   }
 }
 
-function serverVersion() {
+let cachedServerVersion = ''; // refreshed by refreshServerVersion()
+
+function serverVersionFromFile() {
   // Read the VERSION file shipped next to the server exe
   try {
     if (config.serverPath) {
@@ -69,7 +72,56 @@ function serverVersion() {
       if (fs.existsSync(v)) return fs.readFileSync(v, 'utf8').trim();
     }
   } catch (e) {}
-  return config.lastKnownServerVersion || 'unknown';
+  return '';
+}
+
+function serverVersionFromApi() {
+  // Ask the running server for its version. Resolves '' when the server
+  // isn't running or is too old to have /api/version.
+  return new Promise(resolve => {
+    const req = http.request({
+      hostname: '127.0.0.1',
+      port: SERVER_PORT,
+      path: '/api/version',
+      method: 'GET',
+      timeout: 3000,
+    }, res => {
+      let body = '';
+      res.on('data', c => body += c);
+      res.on('end', () => {
+        try {
+          const j = JSON.parse(body);
+          if (j && j.version) return resolve(String(j.version).trim());
+        } catch (e) { /* fall through */ }
+        resolve('');
+      });
+    });
+    req.on('error', () => resolve(''));
+    req.on('timeout', () => { req.destroy(); resolve(''); });
+    req.end();
+  });
+}
+
+async function refreshServerVersion() {
+  // 1. Ask the running server (most reliable)
+  const viaApi = await serverVersionFromApi();
+  if (viaApi) {
+    cachedServerVersion = viaApi;
+  } else {
+    // 2. VERSION file next to the exe, then last known good
+    cachedServerVersion = serverVersionFromFile()
+      || config.lastKnownServerVersion || 'unknown';
+  }
+  // Persist real versions so we remember across restarts
+  if (cachedServerVersion && cachedServerVersion !== 'unknown') {
+    config.lastKnownServerVersion = cachedServerVersion;
+    saveConfig(config);
+  }
+  return cachedServerVersion;
+}
+
+function serverVersion() {
+  return cachedServerVersion || config.lastKnownServerVersion || 'unknown';
 }
 
 function compareVersions(a, b) {
@@ -113,11 +165,22 @@ async function checkForUpdates(manual = false) {
   updateInfo.checking = true;
   broadcast('launcher:update', { ...updateInfo });
   try {
+    const current = await refreshServerVersion();
     const rel = await githubGet(`/repos/${REPO}/releases/latest`);
     const latest = (rel.tag_name || '').trim();
-    const current = serverVersion();
     const asset = (rel.assets || []).find(a => a.name === 'LawFirmHostSetup.exe');
-    if (latest && asset && current !== 'unknown' && compareVersions(latest, current) > 0) {
+    let offer = false;
+    if (latest && asset) {
+      if (current === 'unknown') {
+        // Can't determine the running version (old server without /api/version,
+        // no VERSION file). Offer the update rather than hiding it — this is
+        // how an old install gets onto a version that reports properly.
+        offer = true;
+      } else if (compareVersions(latest, current) > 0) {
+        offer = true;
+      }
+    }
+    if (offer) {
       updateInfo = {
         available: true, version: latest, url: asset.browser_download_url,
         notes: rel.body || '', checking: false,
@@ -125,17 +188,14 @@ async function checkForUpdates(manual = false) {
       pushLog(`Update available: server ${current} -> ${latest}`);
     } else {
       updateInfo = { available: false, version: latest, url: '', notes: '', checking: false };
-      if (manual) pushLog(`Update check: server is current (${current || 'unknown'}).`);
-      if (current !== 'unknown') {
-        config.lastKnownServerVersion = current;
-        saveConfig(config);
-      }
+      if (manual) pushLog(`Update check: server is current (${current}).`);
     }
   } catch (e) {
     updateInfo.checking = false;
     pushLog(`Update check failed: ${e.message} (offline? will retry later)`);
   }
   broadcast('launcher:update', { ...updateInfo });
+  broadcastStatus();
   return updateInfo;
 }
 
@@ -242,6 +302,8 @@ function startServer() {
     });
     pushLog(`Server started (PID ${serverProc.pid}).`);
     broadcastStatus();
+    // Give the server a moment to boot, then pick up its version
+    setTimeout(() => refreshServerVersion().then(() => broadcastStatus()).catch(() => {}), 5000);
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message };
@@ -394,6 +456,9 @@ app.whenReady().then(() => {
     pushLog('Auto-starting server...');
     setTimeout(() => startServer(), 1500);
   }
+
+  // Refresh the displayed server version early (async; falls back gracefully)
+  refreshServerVersion().then(() => broadcastStatus()).catch(() => {});
 
   // Update checks: shortly after launch, then every 6 hours
   setTimeout(() => checkForUpdates(false), 30000);
