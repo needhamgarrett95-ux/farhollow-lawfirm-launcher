@@ -52,6 +52,11 @@ let serverProc = null;
 let logLines = [];
 let updateInfo = { available: false, version: '', url: '', notes: '', checking: false };
 let updateTimer = null;
+// Startup update gate: the server may not be started until the first update
+// check has completed. If an update is pending, the user must install it or
+// explicitly skip before Start Server is enabled. A failed check (offline)
+// never blocks startup.
+let updateGate = { startupCheckDone: false, skippedVersion: '', failed: false };
 
 function pushLog(line) {
   const ts = new Date().toLocaleTimeString();
@@ -190,10 +195,13 @@ async function checkForUpdates(manual = false) {
       updateInfo = { available: false, version: latest, url: '', notes: '', checking: false };
       if (manual) pushLog(`Update check: server is current (${current}).`);
     }
+    updateGate.failed = false;
   } catch (e) {
     updateInfo.checking = false;
+    updateGate.failed = true;
     pushLog(`Update check failed: ${e.message} (offline? will retry later)`);
   }
+  updateGate.startupCheckDone = true;
   broadcast('launcher:update', { ...updateInfo });
   broadcastStatus();
   return updateInfo;
@@ -267,6 +275,8 @@ async function installUpdate() {
   config.lastKnownServerVersion = updateInfo.version.replace(/^v/i, '');
   saveConfig(config);
   updateInfo = { available: false, version: '', url: '', notes: '', checking: false };
+  updateGate.skippedVersion = '';
+  updateGate.failed = false;
   broadcast('launcher:update', { ...updateInfo });
   broadcast('launcher:update-progress', { phase: 'done', pct: 1 });
   pushLog(`Updated to ${config.lastKnownServerVersion}.`);
@@ -282,6 +292,12 @@ function startServer() {
   if (serverProc) return { ok: false, error: 'Server is already running.' };
   if (!config.serverPath || !fs.existsSync(config.serverPath)) {
     return { ok: false, error: 'Server not found. Set the LawFirmServer.exe location in Settings.' };
+  }
+  if (!updateGate.startupCheckDone || updateInfo.checking) {
+    return { ok: false, error: 'Still checking for updates — please wait a moment.' };
+  }
+  if (updateInfo.available && !updateGate.failed && updateGate.skippedVersion !== updateInfo.version) {
+    return { ok: false, error: 'An update is available. Please install it, or click "Skip and start anyway".' };
   }
   try {
     serverProc = spawn(config.serverPath, [], {
@@ -323,6 +339,9 @@ function stopServer() {
 }
 
 function statusPayload() {
+  const updatePending = updateInfo.available
+    && !updateGate.failed
+    && updateGate.skippedVersion !== updateInfo.version;
   return {
     running: !!serverProc,
     pid: serverProc ? serverProc.pid : null,
@@ -333,6 +352,11 @@ function statusPayload() {
     startWithWindows: app.getLoginItemSettings().openAtLogin,
     startServerOnBoot: config.startServerOnBoot,
     update: { ...updateInfo },
+    gate: {
+      checking: !updateGate.startupCheckDone || updateInfo.checking,
+      updatePending,
+      checkFailed: updateGate.failed && updateGate.startupCheckDone,
+    },
   };
 }
 
@@ -420,6 +444,14 @@ ipcMain.handle('launcher:browse-server', async () => {
   return { ok: false };
 });
 ipcMain.handle('launcher:check-updates', async () => checkForUpdates(true));
+ipcMain.handle('launcher:skip-update', () => {
+  if (updateInfo.available) {
+    updateGate.skippedVersion = updateInfo.version;
+    pushLog(`Update ${updateInfo.version} skipped by user — starting with current version.`);
+  }
+  broadcastStatus();
+  return { ok: true };
+});
 ipcMain.handle('launcher:install-update', async () => {
   try {
     await installUpdate();
@@ -451,18 +483,32 @@ app.whenReady().then(() => {
     pushLog('Server not found automatically — set its location in Settings.');
   }
 
-  // Auto-start server on boot if configured
-  if (config.startServerOnBoot && config.serverPath && fs.existsSync(config.serverPath)) {
-    pushLog('Auto-starting server...');
-    setTimeout(() => startServer(), 1500);
-  }
-
   // Refresh the displayed server version early (async; falls back gracefully)
   refreshServerVersion().then(() => broadcastStatus()).catch(() => {});
 
-  // Update checks: shortly after launch, then every 6 hours
-  setTimeout(() => checkForUpdates(false), 30000);
+  // Update check runs IMMEDIATELY on launch (gates the Start button),
+  // then every 6 hours after that.
+  checkForUpdates(false).catch(() => {});
   updateTimer = setInterval(() => checkForUpdates(false), UPDATE_CHECK_MS);
+
+  // Auto-start server on boot if configured — waits for the update check
+  // first. If an update is pending at boot, we still start (nobody is here
+  // to click through the gate, and an office-down server is worse than a
+  // stale one); the update banner will prompt when someone opens the UI.
+  if (config.startServerOnBoot && config.serverPath && fs.existsSync(config.serverPath)) {
+    pushLog('Auto-start will begin after the update check...');
+    const waitForCheck = setInterval(() => {
+      if (!updateGate.startupCheckDone) return;
+      clearInterval(waitForCheck);
+      if (updateInfo.available && !updateGate.failed) {
+        updateGate.skippedVersion = updateInfo.version;
+        pushLog(`Update ${updateInfo.version} pending — auto-starting current version (banner will prompt).`);
+      }
+      const r = startServer();
+      if (!r.ok) pushLog(`Auto-start failed: ${r.error}`);
+    }, 500);
+    setTimeout(() => clearInterval(waitForCheck), 90000); // safety: never wait forever
+  }
 });
 
 app.on('window-all-closed', () => {

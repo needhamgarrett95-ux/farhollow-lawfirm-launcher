@@ -9,34 +9,53 @@ function render(status) {
   const txt = $('status-text');
   const sub = $('status-sub');
   const btn = $('btn-toggle');
+  const gate = status.gate || {};
+  const checking = !!gate.checking;
+  const updatePending = !!gate.updatePending;
+  const checkFailed = !!gate.checkFailed;
 
   if (status.running) {
     dot.className = 'dot running';
     txt.textContent = 'Server is running';
     sub.textContent = `Version ${status.version} · ${status.url}`;
     btn.textContent = 'Stop Server';
+    btn.disabled = busy;
+  } else if (checking) {
+    dot.className = 'dot stopped';
+    txt.textContent = 'Checking for updates…';
+    sub.textContent = 'Please wait a moment.';
+    btn.textContent = 'Checking for updates…';
+    btn.disabled = true;
   } else {
     dot.className = 'dot stopped';
     txt.textContent = 'Server is stopped';
-    sub.textContent = status.serverFound
+    let subText = status.serverFound
       ? `Version ${status.version} · ready to start`
       : 'Server not found — set its location in Settings';
+    if (checkFailed) subText += ' · (couldn\u2019t check for updates)';
+    sub.textContent = subText;
     btn.textContent = 'Start Server';
+    // Gate: an available update blocks Start until installed or skipped.
+    // A failed check never blocks.
+    btn.disabled = busy || !status.serverFound || updatePending;
   }
-  btn.disabled = busy || !status.serverFound;
 
   $('server-path').value = status.serverPath || '';
   $('chk-startup').checked = status.startWithWindows;
   $('chk-server-boot').checked = status.startServerOnBoot;
-  renderUpdate(status.update);
+  renderUpdate(status.update, gate);
 }
 
-function renderUpdate(u) {
+function renderUpdate(u, gate) {
   const card = $('update-card');
   if (!u || !u.available) { card.classList.add('hidden'); return; }
   card.classList.remove('hidden');
   $('update-title').textContent = `Update available: server ${u.version}`;
   $('update-notes').textContent = (u.notes || 'See the release page for details.').slice(0, 600);
+  // Show "Skip and start anyway" only while the gate is actively pending.
+  const skipBtn = $('btn-skip');
+  if (gate && gate.updatePending) skipBtn.classList.remove('hidden');
+  else skipBtn.classList.add('hidden');
 }
 
 async function refresh() {
@@ -64,6 +83,12 @@ $('btn-toggle').addEventListener('click', async () => {
 });
 
 $('btn-browser').addEventListener('click', () => window.launcher.openBrowser());
+$('btn-skip').addEventListener('click', async () => {
+  $('btn-skip').disabled = true;
+  await window.launcher.skipUpdate();
+  $('btn-skip').disabled = false;
+  await refresh();
+});
 $('btn-browse').addEventListener('click', async () => {
   await window.launcher.browseServer();
   await refresh();
@@ -103,7 +128,9 @@ bindToggle('settings-toggle', 'settings');
 // Live updates from the main process
 window.launcher.onStatus(s => render(s));
 window.launcher.onLogs(lines => renderLogs(lines));
-window.launcher.onUpdate(u => { if (currentStatus) { currentStatus.update = u; renderUpdate(u); } });
+// A fresh update event may change the gate (checking -> pending/clear),
+// so re-pull full status rather than patching the banner alone.
+window.launcher.onUpdate(() => refresh());
 window.launcher.onUpdateProgress(p => {
   const wrap = $('update-progress');
   wrap.classList.remove('hidden');

@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('launcher', {
   openBrowser: () => ipcRenderer.invoke('launcher:open-browser'),
   browseServer: () => ipcRenderer.invoke('launcher:browse-server'),
   checkUpdates: () => ipcRenderer.invoke('launcher:check-updates'),
+  skipUpdate: () => ipcRenderer.invoke('launcher:skip-update'),
   installUpdate: () => ipcRenderer.invoke('launcher:install-update'),
   setStartWithWindows: (v) => ipcRenderer.invoke('launcher:set-start-with-windows', v),
   setStartServerOnBoot: (v) => ipcRenderer.invoke('launcher:set-start-server-on-boot', v),
