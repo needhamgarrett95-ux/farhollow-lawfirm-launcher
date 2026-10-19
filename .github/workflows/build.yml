@@ -1,5 +1,8 @@
 name: Build launcher
 
+permissions:
+  contents: write   # needed to create GitHub Releases and upload installers
+
 on:
   push:
     tags:
