@@ -290,7 +290,7 @@ function createWindow() {
     height: 680,
     resizable: false,
     title: 'Law Firm Launcher',
-    icon: path.join(__dirname, 'assets', 'icon.png'),
+    icon: path.join(__dirname, 'assets', 'dgm-icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -326,7 +326,7 @@ function updateTrayMenu() {
 }
 
 function createTray() {
-  const iconPath = path.join(__dirname, 'assets', 'icon.png');
+  const iconPath = path.join(__dirname, 'assets', 'tray.png');
   const img = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
   tray = new Tray(img.isEmpty() ? undefined : img);
   tray.on('double-click', () => { mainWindow.show(); mainWindow.focus(); });

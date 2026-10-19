@@ -27,7 +27,11 @@ body {
   gap: 12px;
   padding: 14px 18px;
 }
-.appicon { width: 40px; height: 40px; border-radius: 8px; }
+.logochip {
+  background: #fff; border-radius: 8px; padding: 4px 10px;
+  display: flex; align-items: center; flex-shrink: 0;
+}
+.firmlogo { height: 34px; width: auto; display: block; }
 .apptitle { font-weight: 700; font-size: 17px; }
 .appsub { font-size: 12px; color: #cdd8e4; }
 main { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
