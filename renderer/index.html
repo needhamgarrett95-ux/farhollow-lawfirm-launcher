@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Law Firm Launcher</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="appbar">
+  <img src="../assets/icon.png" class="appicon" alt="">
+  <div>
+    <div class="apptitle">Law Firm Launcher</div>
+    <div class="appsub">Case Management Server</div>
+  </div>
+</header>
+
+<main>
+  <!-- Status card -->
+  <section class="card" id="status-card">
+    <div class="status-row">
+      <span class="dot" id="status-dot"></span>
+      <div>
+        <div class="status-text" id="status-text">Checking…</div>
+        <div class="status-sub" id="status-sub"></div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-primary btn-big" id="btn-toggle">Start Server</button>
+      <button class="btn" id="btn-browser">Open in Browser</button>
+    </div>
+  </section>
+
+  <!-- Update banner -->
+  <section class="card update hidden" id="update-card">
+    <div class="update-title" id="update-title">Update available</div>
+    <div class="update-notes" id="update-notes"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btn-update">Update Now</button>
+      <button class="btn btn-link" id="btn-check">Check again</button>
+    </div>
+    <div class="progress hidden" id="update-progress">
+      <div class="progress-bar" id="update-bar"></div>
+      <div class="progress-label" id="update-label"></div>
+    </div>
+  </section>
+
+  <!-- Log view -->
+  <section class="card">
+    <button class="section-toggle" id="log-toggle">Server log <span class="chev">▸</span></button>
+    <pre class="log hidden" id="log"></pre>
+  </section>
+
+  <!-- Settings -->
+  <section class="card">
+    <button class="section-toggle" id="settings-toggle">Settings <span class="chev">▸</span></button>
+    <div class="settings hidden" id="settings">
+      <label class="field">
+        <span>Server location</span>
+        <div class="path-row">
+          <input type="text" id="server-path" readonly>
+          <button class="btn btn-small" id="btn-browse">Browse…</button>
+        </div>
+      </label>
+      <label class="check">
+        <input type="checkbox" id="chk-startup"> Start launcher when Windows starts
+      </label>
+      <label class="check">
+        <input type="checkbox" id="chk-server-boot"> Also start the server automatically
+      </label>
+      <p class="hint">Tip: this window can be closed — the launcher keeps running in the system tray. Right-click the tray icon for quick actions.</p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span>Office network only — do not expose to the internet.</span>
+</footer>
+
+<script src="renderer.js"></script>
+</body>
+</html>
